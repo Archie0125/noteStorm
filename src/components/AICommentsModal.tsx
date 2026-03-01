@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Copy, Bot, CheckCircle2 } from 'lucide-react';
 import { AIComment, AIPersona } from '../types';
+import { useI18n } from '../i18n';
 
 interface AICommentsModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface AICommentsModalProps {
 }
 
 export const AICommentsModal: React.FC<AICommentsModalProps> = ({ isOpen, onClose, onAdopt, comments, personas }) => {
+  const { t } = useI18n();
   if (!isOpen) return null;
 
   const getPersonaColor = (name: string) => {
@@ -29,8 +31,8 @@ export const AICommentsModal: React.FC<AICommentsModalProps> = ({ isOpen, onClos
               <Bot size={20} />
             </div>
             <div>
-              <h2 className="font-semibold text-gray-900">AI Feedback</h2>
-              <p className="text-xs text-gray-500">Suggestions from multiple personas</p>
+              <h2 className="font-semibold text-gray-900">{t('aiFeedback')}</h2>
+              <p className="text-xs text-gray-500">{t('aiFeedbackDesc')}</p>
             </div>
           </div>
           <button 
@@ -45,7 +47,7 @@ export const AICommentsModal: React.FC<AICommentsModalProps> = ({ isOpen, onClos
         <div className="p-6 overflow-y-auto space-y-6 bg-gray-50/50">
           {comments.length === 0 ? (
             <div className="text-center py-10 text-gray-500">
-              No comments generated yet.
+              {t('noCommentsYet')}
             </div>
           ) : (
             comments.map((comment, idx) => (
@@ -71,19 +73,19 @@ export const AICommentsModal: React.FC<AICommentsModalProps> = ({ isOpen, onClos
                   <button
                     onClick={() => navigator.clipboard.writeText(comment.content)}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="Copy suggestion"
+                    title={t('copy')}
                   >
                     <Copy size={14} />
-                    Copy
+                    {t('copy')}
                   </button>
                   
                   <button
                     onClick={() => onAdopt(comment)}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
-                    title="Create a new note with this content"
+                    title={t('adopt')}
                   >
                     <CheckCircle2 size={14} />
-                    Adopt
+                    {t('adopt')}
                   </button>
                 </div>
               </div>
@@ -97,7 +99,7 @@ export const AICommentsModal: React.FC<AICommentsModalProps> = ({ isOpen, onClos
             onClick={onClose}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
           >
-            Close
+            {t('close')}
           </button>
         </div>
       </div>

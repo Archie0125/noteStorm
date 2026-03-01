@@ -1,5 +1,1 @@
-{
-  "name": "AI Whiteboard Blog Tool",
-  "description": "A free-form AI whiteboard for blog creation with sticky notes, infinite canvas, and AI-powered persona comments.",
-  "requestFramePermissions": []
-}
+{"name":"NoteStorm","description":"A visual note-taking whiteboard with AI-powered multi-persona feedback. Sticky notes, layers, auto-save, and bilingual UI.","requestFramePermissions":[]}

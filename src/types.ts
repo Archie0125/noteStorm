@@ -51,5 +51,15 @@ export interface AIPersona {
   color: string;
 }
 
+export interface BoardLayer {
+  id: string;
+  name: string;
+  notes: Note[];
+  lines: Line[];
+  groups: Group[];
+  stagePos: Position;
+  stageScale: number;
+}
+
 export const DEFAULT_NOTE_SIZE = { width: 300, height: 300 };
 export const HEADER_HEIGHT = 40;

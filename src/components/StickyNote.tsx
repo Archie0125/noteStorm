@@ -3,6 +3,7 @@ import { Group, Rect, Text as KonvaText } from 'react-konva';
 import { Html } from 'react-konva-utils';
 import { Check, X, Copy, Bot } from 'lucide-react';
 import { Note, NoteStatus, HEADER_HEIGHT } from '../types';
+import { useI18n } from '../i18n';
 
 interface StickyNoteProps {
   note: Note;
@@ -25,6 +26,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
   onShowAI,
   scale,
 }) => {
+  const { t } = useI18n();
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
@@ -38,11 +40,12 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
   }, [note.text]);
 
   const handleStatusChange = (status: NoteStatus) => {
-    if (status === 'disabled' && note.text.trim() === '') {
+    const currentText = textAreaRef.current?.value ?? note.text;
+    if (status === 'disabled' && currentText.trim() === '') {
       // If disabling an empty note, delete it instead
       onUpdate(note.id, { status: 'deleted' } as any); // We'll handle 'deleted' in Whiteboard
     } else {
-      onUpdate(note.id, { status });
+      onUpdate(note.id, { status, text: currentText });
     }
   };
 
@@ -161,7 +164,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
         <KonvaText
           x={10}
           y={12}
-          text={`#${note.order || 1} - ${isCompleted ? 'Completed' : isDisabled ? 'Disabled' : 'Draft'}`}
+          text={`#${note.order || 1} - ${isCompleted ? t('completed') : isDisabled ? t('disabled') : t('draft')}`}
           fontSize={12}
           fontStyle="bold"
           fill="#6b7280"
@@ -193,7 +196,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
               <button
                 onClick={() => onShowAI(note.id)}
                 className="p-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors pointer-events-auto"
-                title="View AI Suggestions"
+                title={t('viewAiSuggestions')}
                 onMouseDown={(e) => e.stopPropagation()} // Prevent drag start
               >
                 <Bot size={16} />
@@ -212,25 +215,27 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
               </button>
             )}
 
-            {/* Status Toggles */}
-            <button
-              onClick={() => handleStatusChange('completed')}
-              className={`p-1 rounded transition-colors pointer-events-auto ${isCompleted ? 'bg-green-500 text-white' : 'hover:bg-green-200 text-green-700'}`}
-              title="Complete & Generate AI Comments"
-              disabled={isDisabled}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <Check size={16} />
-            </button>
-            <button
-              onClick={() => handleStatusChange('disabled')}
-              className={`p-1 rounded transition-colors pointer-events-auto ${isDisabled ? 'bg-gray-500 text-white' : 'hover:bg-gray-200 text-gray-700'}`}
-              title="Disable Note"
-              disabled={isCompleted}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <X size={16} />
-            </button>
+            {/* Status Toggles - 完成時不顯示 X，停用時不顯示打勾 */}
+            {!isDisabled && (
+              <button
+                onClick={() => handleStatusChange('completed')}
+                className={`p-1 rounded transition-colors pointer-events-auto ${isCompleted ? 'bg-green-500 text-white' : 'hover:bg-green-200 text-green-700'}`}
+                title="Complete & Generate AI Comments"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <Check size={16} />
+              </button>
+            )}
+            {!isCompleted && (
+              <button
+                onClick={() => handleStatusChange('disabled')}
+                className={`p-1 rounded transition-colors pointer-events-auto ${isDisabled ? 'bg-gray-500 text-white' : 'hover:bg-gray-200 text-gray-700'}`}
+                title="Disable Note"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
         </Html>
       </Group>

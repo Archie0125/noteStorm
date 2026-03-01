@@ -2,21 +2,86 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Line as KonvaLine, Rect, Group, Text as KonvaText } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
 import { StickyNote } from './StickyNote';
-import { Note, Line, Position, DEFAULT_NOTE_SIZE, Group as NoteGroup, AIComment, AIPersona, NoteStatus, HEADER_HEIGHT } from '../types';
-import { generateAIComments, DEFAULT_PERSONAS } from '../services/ai';
-import { Loader2, GripHorizontal, Settings } from 'lucide-react';
+import { Note, Line, Position, DEFAULT_NOTE_SIZE, Group as NoteGroup, AIComment, AIPersona, NoteStatus, HEADER_HEIGHT, BoardLayer } from '../types';
+import { generateAIComments, DEFAULT_PERSONAS, DEFAULT_MODEL } from '../services/ai';
+import { Loader2, GripHorizontal, Settings, FilePlus, Download, Upload, Plus, X as XIcon, Layers, Languages } from 'lucide-react';
 import { AICommentsModal } from './AICommentsModal';
 import { PersonaSettingsModal } from './PersonaSettingsModal';
+import { useI18n } from '../i18n';
+
+interface ProjectData {
+  version: string;
+  layers: BoardLayer[];
+  activeLayerId: string;
+  personas: AIPersona[];
+}
+
+const AUTOSAVE_KEY = 'noteStorm_autosave';
+
+const createDefaultLayer = (id: string, name: string): BoardLayer => ({
+  id,
+  name,
+  notes: [],
+  lines: [],
+  groups: [],
+  stagePos: { x: 0, y: 0 },
+  stageScale: 1,
+});
+
+function loadSavedProject(): ProjectData | null {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as ProjectData;
+    if (data.version === '2.0' && data.layers && Array.isArray(data.layers)) return data;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export const Whiteboard: React.FC = () => {
-  // --- State ---
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [lines, setLines] = useState<Line[]>([]);
-  const [groups, setGroups] = useState<NoteGroup[]>([]);
+  const { t, locale, setLocale } = useI18n();
+
+  // --- Layer State (load from localStorage on mount) ---
+  const [layers, setLayers] = useState<BoardLayer[]>(() => {
+    const s = loadSavedProject();
+    return s?.layers ?? [createDefaultLayer('layer-1', 'Layer 1')];
+  });
+  const [activeLayerId, setActiveLayerId] = useState<string>(() => {
+    const s = loadSavedProject();
+    if (!s?.layers?.length) return 'layer-1';
+    const exists = s.layers.some((l) => l.id === s.activeLayerId);
+    return exists ? s.activeLayerId : s.layers[0].id;
+  });
+
+  // Derived state for the active layer
+  const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+  const notes = activeLayer.notes;
+  const lines = activeLayer.lines;
+  const groups = activeLayer.groups;
+  const stagePos = activeLayer.stagePos;
+  const stageScale = activeLayer.stageScale;
+
+  // Custom setters to update the active layer
+  const setNotes = (updater: React.SetStateAction<Note[]>) => {
+    setLayers(prev => prev.map(l => l.id === activeLayerId ? { ...l, notes: typeof updater === 'function' ? updater(l.notes) : updater } : l));
+  };
+  const setLines = (updater: React.SetStateAction<Line[]>) => {
+    setLayers(prev => prev.map(l => l.id === activeLayerId ? { ...l, lines: typeof updater === 'function' ? updater(l.lines) : updater } : l));
+  };
+  const setGroups = (updater: React.SetStateAction<NoteGroup[]>) => {
+    setLayers(prev => prev.map(l => l.id === activeLayerId ? { ...l, groups: typeof updater === 'function' ? updater(l.groups) : updater } : l));
+  };
+  const setStagePos = (updater: React.SetStateAction<Position>) => {
+    setLayers(prev => prev.map(l => l.id === activeLayerId ? { ...l, stagePos: typeof updater === 'function' ? updater(l.stagePos) : updater } : l));
+  };
+  const setStageScale = (updater: React.SetStateAction<number>) => {
+    setLayers(prev => prev.map(l => l.id === activeLayerId ? { ...l, stageScale: typeof updater === 'function' ? updater(l.stageScale) : updater } : l));
+  };
+
+  // --- UI State ---
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  
-  const [stagePos, setStagePos] = useState<Position>({ x: 0, y: 0 });
-  const [stageScale, setStageScale] = useState<number>(1);
   
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingMode, setDrawingMode] = useState<'none' | 'freehand' | 'straight'>('none');
@@ -32,10 +97,131 @@ export const Whiteboard: React.FC = () => {
   
   // Persona Settings State
   const [isPersonaModalOpen, setIsPersonaModalOpen] = useState(false);
-  const [activePersonas, setActivePersonas] = useState<AIPersona[]>(DEFAULT_PERSONAS);
+  const [activePersonas, setActivePersonas] = useState<AIPersona[]>(() => {
+    const s = loadSavedProject();
+    return s?.personas ?? DEFAULT_PERSONAS;
+  });
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
+  const [model, setModel] = useState<string>(() => localStorage.getItem('gemini_model') || DEFAULT_MODEL);
 
   const stageRef = useRef<any>(null);
   const isRightClickRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- Auto-save to localStorage ---
+  useEffect(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      const projectData: ProjectData = {
+        version: '2.0',
+        layers,
+        activeLayerId,
+        personas: activePersonas,
+      };
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(projectData));
+      saveTimeoutRef.current = null;
+    }, 500);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [layers, activeLayerId, activePersonas]);
+
+  // --- Project Management ---
+  const handleNewProject = () => {
+    if (window.confirm(t('confirmNewProject'))) {
+      const newLayer = createDefaultLayer('layer-1', 'Layer 1');
+      setLayers([newLayer]);
+      setActiveLayerId(newLayer.id);
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleSaveProject = () => {
+    const projectData: ProjectData = {
+      version: '2.0',
+      layers,
+      activeLayerId,
+      personas: activePersonas,
+    };
+
+    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `whiteboard-${new Date().toISOString().slice(0, 10)}.wbd`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const data = JSON.parse(content) as any;
+        
+        // Handle legacy v1.0 format
+        if (data.version === '1.0' || data.notes) {
+          const legacyLayer = createDefaultLayer('layer-1', 'Layer 1');
+          legacyLayer.notes = data.notes || [];
+          legacyLayer.lines = data.lines || [];
+          legacyLayer.groups = data.groups || [];
+          legacyLayer.stagePos = data.stagePos || { x: 0, y: 0 };
+          legacyLayer.stageScale = data.stageScale || 1;
+          
+          setLayers([legacyLayer]);
+          setActiveLayerId(legacyLayer.id);
+          if (data.personas) setActivePersonas(data.personas);
+        } else if (data.version === '2.0' && data.layers) {
+          setLayers(data.layers);
+          setActiveLayerId(data.activeLayerId || data.layers[0].id);
+          if (data.personas) setActivePersonas(data.personas);
+        }
+        
+        setSelectedIds(new Set());
+      } catch (error) {
+        console.error('Failed to parse project file:', error);
+        alert('Invalid project file format.');
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset input so the same file can be loaded again if needed
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // --- Layer Management ---
+  const handleAddLayer = () => {
+    const newLayer = createDefaultLayer(uuidv4(), `Layer ${layers.length + 1}`);
+    setLayers(prev => [...prev, newLayer]);
+    setActiveLayerId(newLayer.id);
+    setSelectedIds(new Set());
+  };
+
+  const handleDeleteLayer = (id: string) => {
+    if (layers.length <= 1) {
+      alert('You must have at least one layer.');
+      return;
+    }
+    if (window.confirm('Are you sure you want to delete this layer?')) {
+      setLayers(prev => {
+        const next = prev.filter(l => l.id !== id);
+        if (activeLayerId === id) {
+          setActiveLayerId(next[0].id);
+          setSelectedIds(new Set());
+        }
+        return next;
+      });
+    }
+  };
 
   // --- Helpers ---
   const GAP = 20;
@@ -142,9 +328,10 @@ export const Whiteboard: React.FC = () => {
   };
 
   const triggerAI = async (sourceNote: Note) => {
+    const effectiveKey = apiKey?.trim() || process.env.GEMINI_API_KEY;
     setIsProcessingAI(true);
     try {
-      const comments = await generateAIComments(sourceNote.text, activePersonas);
+      const comments = await generateAIComments(sourceNote.text, activePersonas, effectiveKey, model);
       
       const aiComments = comments.map(comment => {
         const persona = activePersonas.find(p => p.id === comment.personaId);
@@ -217,12 +404,12 @@ export const Whiteboard: React.FC = () => {
     });
 
     const padding = 20;
-    const groupName = window.prompt("Enter group name:", "New Group");
+    const groupName = window.prompt(t('enterGroupName'), t('newGroup'));
     if (groupName === null) return;
 
     const newGroup: NoteGroup = {
       id: uuidv4(),
-      name: groupName || 'New Group',
+      name: groupName || t('newGroup'),
       itemIds: Array.from(selectedIds),
       rect: {
         x: minX - padding,
@@ -427,6 +614,8 @@ export const Whiteboard: React.FC = () => {
     const sourceNote = notes.find(n => n.id === activeModalNoteId);
     if (!sourceNote) return;
 
+    setActiveModalNoteId(null);
+
     setNotes(prev => {
       const newOrder = prev.length > 0 ? Math.max(...prev.map(n => n.order || 0)) + 1 : 1;
       const newZIndex = prev.length > 0 ? Math.max(...prev.map(n => n.zIndex || 0)) + 1 : 1;
@@ -455,15 +644,30 @@ export const Whiteboard: React.FC = () => {
 
   const activeNote = activeModalNoteId ? notes.find(n => n.id === activeModalNoteId) : null;
 
+  const hasApiKey = !!(apiKey?.trim() || process.env.GEMINI_API_KEY);
+
   return (
     <div className="w-full h-screen bg-gray-50 overflow-hidden relative">
+      {/* No API Key Banner */}
+      {!hasApiKey && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-60 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm">
+          <span className="text-sm text-amber-800">{t('setApiKeyPrompt')}</span>
+          <button
+            onClick={() => setIsPersonaModalOpen(true)}
+            className="text-sm font-medium text-amber-700 hover:text-amber-900 underline"
+          >
+            {t('goToSettings')}
+          </button>
+        </div>
+      )}
+
       {/* UI Overlay */}
       <div className="absolute top-4 left-4 z-50 flex gap-2">
         <div className="bg-white p-2 rounded-lg shadow-md border border-gray-200 flex items-center gap-2">
-          <div className="text-sm font-semibold text-gray-700 px-2">AI Whiteboard</div>
+          <div className="text-sm font-semibold text-gray-700 px-2">{t('aiWhiteboard')}</div>
           <div className="h-4 w-px bg-gray-300 mx-1" />
           <div className="text-xs text-gray-500">
-            Left Click: Add Note • Right Drag: Draw • Shift+Drag: Select
+            {t('shortcuts')}
           </div>
         </div>
         
@@ -473,27 +677,52 @@ export const Whiteboard: React.FC = () => {
             className="bg-white px-3 py-2 rounded-lg shadow-md border border-gray-200 text-sm font-medium text-blue-600 hover:bg-blue-50 flex items-center gap-2"
           >
             <GripHorizontal size={16} />
-            Create Group ({selectedIds.size})
+            {t('createGroup')} ({selectedIds.size})
           </button>
-        )}
-
-        {isProcessingAI && (
-          <div className="bg-blue-50 text-blue-700 px-3 py-2 rounded-lg shadow-sm border border-blue-200 flex items-center gap-2 animate-pulse">
-            <Loader2 className="animate-spin" size={16} />
-            <span className="text-sm font-medium">AI Generating Feedback...</span>
-          </div>
         )}
       </div>
 
       {/* Settings Button (Top Right) */}
-      <div className="absolute top-4 right-4 z-50">
+      <div className="absolute top-4 right-4 z-50 flex gap-2">
+        <button
+          onClick={handleNewProject}
+          className="bg-white p-2 rounded-lg shadow-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-red-600 transition-colors flex items-center gap-2"
+          title={t('newProject')}
+        >
+          <FilePlus size={20} />
+          <span className="text-sm font-medium hidden sm:inline">{t('newProject')}</span>
+        </button>
+        <button
+          onClick={handleSaveProject}
+          className="bg-white p-2 rounded-lg shadow-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-green-600 transition-colors flex items-center gap-2"
+          title={t('saveProject')}
+        >
+          <Download size={20} />
+          <span className="text-sm font-medium hidden sm:inline">{t('saveProject')}</span>
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="bg-white p-2 rounded-lg shadow-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-blue-600 transition-colors flex items-center gap-2"
+          title={t('loadProject')}
+        >
+          <Upload size={20} />
+          <span className="text-sm font-medium hidden sm:inline">{t('loadProject')}</span>
+        </button>
+        <input
+          type="file"
+          accept=".wbd"
+          ref={fileInputRef}
+          onChange={handleLoadProject}
+          className="hidden"
+        />
+        <div className="w-px bg-gray-300 mx-1 my-1" />
         <button
           onClick={() => setIsPersonaModalOpen(true)}
           className="bg-white p-2 rounded-lg shadow-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-indigo-600 transition-colors flex items-center gap-2"
-          title="AI Persona Settings"
+          title={t('aiPersonas')}
         >
           <Settings size={20} />
-          <span className="text-sm font-medium hidden sm:inline">AI Personas</span>
+          <span className="text-sm font-medium hidden sm:inline">{t('aiPersonas')}</span>
         </button>
       </div>
 
@@ -502,7 +731,15 @@ export const Whiteboard: React.FC = () => {
         isOpen={isPersonaModalOpen}
         onClose={() => setIsPersonaModalOpen(false)}
         personas={activePersonas}
-        onSave={(newPersonas) => setActivePersonas(newPersonas)}
+        apiKey={apiKey}
+        model={model}
+        onSave={(newPersonas, newApiKey, newModel) => {
+          setActivePersonas(newPersonas);
+          setApiKey(newApiKey);
+          setModel(newModel);
+          localStorage.setItem('gemini_api_key', newApiKey);
+          localStorage.setItem('gemini_model', newModel);
+        }}
       />
 
       {/* AI Comments Modal */}
@@ -513,6 +750,63 @@ export const Whiteboard: React.FC = () => {
         comments={activeNote?.aiComments || []}
         personas={activePersonas}
       />
+
+      {/* AI Notification + Language Switcher (Bottom Right) */}
+      <div className="absolute bottom-4 right-4 z-50 flex items-center gap-2">
+        {isProcessingAI && (
+          <div className="bg-blue-50 text-blue-700 px-3 py-2 rounded-lg shadow-sm border border-blue-200 flex items-center gap-2 animate-pulse">
+            <Loader2 className="animate-spin" size={16} />
+            <span className="text-sm font-medium">{t('aiGenerating')}</span>
+          </div>
+        )}
+        <button
+          onClick={() => setLocale(locale === 'en' ? 'zh-TW' : 'en')}
+          className="bg-white p-2 rounded-lg shadow-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-indigo-600 transition-colors flex items-center gap-2"
+          title={locale === 'en' ? '繁體中文' : 'English'}
+        >
+          <Languages size={20} />
+          <span className="text-sm font-medium">{locale === 'en' ? 'EN' : '繁中'}</span>
+        </button>
+      </div>
+
+      {/* Layers Panel (Bottom Left) */}
+      <div className="absolute bottom-4 left-4 z-50 flex flex-col gap-2">
+        <div className="bg-white p-3 rounded-lg shadow-md border border-gray-200 flex flex-col gap-2 min-w-[200px]">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 pb-2 border-b border-gray-100">
+            <Layers size={16} />
+            <span>{t('layers')}</span>
+          </div>
+          <div className="flex flex-col gap-1 max-h-[200px] overflow-y-auto pr-1">
+            {layers.map(layer => (
+              <div 
+                key={layer.id} 
+                className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm transition-colors ${layer.id === activeLayerId ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => {
+                  setActiveLayerId(layer.id);
+                  setSelectedIds(new Set());
+                }}
+              >
+                <span className="truncate max-w-[120px]">{layer.name}</span>
+                {layers.length > 1 && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleDeleteLayer(layer.id); }}
+                    className="text-gray-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                    title="Delete Layer"
+                  >
+                    <XIcon size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button 
+            onClick={handleAddLayer}
+            className="flex items-center justify-center gap-1 text-sm text-blue-600 hover:bg-blue-50 border border-blue-100 rounded px-2 py-1.5 mt-1 transition-colors font-medium"
+          >
+            <Plus size={14} /> {t('addLayer')}
+          </button>
+        </div>
+      </div>
 
       <Stage
         width={window.innerWidth}
