@@ -113,7 +113,7 @@ Click **Adopt** on any suggestion to create a new note with that content. The ne
    npm install
    ```
 
-2. **API Key (optional)** — Enter your Gemini API key in the app (AI Personas → Gemini API Key).
+2. **API Key (required)** — Enter your Gemini API key in the app (AI Personas → Gemini API Key).
 
 3. Run the app:
    ```bash
@@ -251,7 +251,7 @@ NoteStorm 是視覺化筆記白板，用 AI 多角色點評幫你寫得更好、
    npm install
    ```
 
-2. **API Key（選填）** — 在應用程式設定中輸入 Gemini API Key（AI 人設 → Gemini API Key）。
+2. **API Key（必填）** — 在應用程式設定中輸入 Gemini API Key（AI 人設 → Gemini API Key）。
 
 3. 啟動應用：
    ```bash
