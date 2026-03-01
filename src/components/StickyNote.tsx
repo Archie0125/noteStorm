@@ -215,7 +215,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
               </button>
             )}
 
-            {/* Status Toggles - 完成時不顯示 X，停用時不顯示打勾 */}
+            {/* Status Toggles - Hide X when completed, hide checkmark when disabled */}
             {!isDisabled && (
               <button
                 onClick={() => handleStatusChange('completed')}
